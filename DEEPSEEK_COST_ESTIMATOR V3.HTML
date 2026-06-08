@@ -1,0 +1,964 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Quote Builder">
+<meta name="theme-color" content="#0b0c0e">
+<meta name="description" content="Professional project estimator for contractors — labor, materials, travel, tax. Save client quotes. Works offline.">
+<title>Quote Builder</title>
+
+<!-- PWA Manifest (injected via JS) -->
+<script>
+// Generate manifest dynamically
+const manifest = {
+  name: "Quote Builder",
+  short_name: "Quotes",
+  description: "Professional project estimator for contractors",
+  start_url: location.href,
+  display: "standalone",
+  orientation: "portrait",
+  background_color: "#0b0c0e",
+  theme_color: "#0b0c0e",
+  icons: [
+    { src: "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192"><rect width="192" height="192" rx="32" fill="#0b0c0e"/><text x="96" y="110" text-anchor="middle" font-family="system-ui" font-size="72" font-weight="800" fill="#378ADD">QB</text></svg>'), sizes: "192x192", type: "image/svg+xml" },
+    { src: "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512"><rect width="512" height="512" rx="64" fill="#0b0c0e"/><text x="256" y="280" text-anchor="middle" font-family="system-ui" font-size="180" font-weight="800" fill="#378ADD">QB</text></svg>'), sizes: "512x512", type: "image/svg+xml" }
+  ]
+};
+const blob = new Blob([JSON.stringify(manifest)], { type: 'application/json' });
+const manifestURL = URL.createObjectURL(blob);
+document.querySelector('link[rel="manifest"]')?.remove();
+const link = document.createElement('link');
+link.rel = 'manifest';
+link.href = manifestURL;
+document.head.appendChild(link);
+
+// Register service worker
+if ('serviceWorker' in navigator) {
+  const swCode = `
+const CACHE = 'qb-v2';
+const ASSETS = [
+  self.location.href
+];
+
+self.addEventListener('install', e => {
+  e.waitUntil(
+    caches.open(CACHE).then(cache => cache.addAll(ASSETS).catch(() => {}))
+  );
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', e => {
+  e.waitUntil(
+    caches.keys().then(keys => Promise.all(
+      keys.filter(k => k !== CACHE).map(k => caches.delete(k))
+    ))
+  );
+  self.clients.claim();
+});
+
+self.addEventListener('fetch', e => {
+  if (e.request.method !== 'GET') return;
+  e.respondWith(
+    caches.match(e.request).then(cached => {
+      const fetched = fetch(e.request).then(response => {
+        if (response && response.status === 200) {
+          const clone = response.clone();
+          caches.open(CACHE).then(cache => cache.put(e.request, clone));
+        }
+        return response;
+      }).catch(() => cached);
+      return cached || fetched;
+    })
+  );
+});
+`;
+  const swBlob = new Blob([swCode], { type: 'application/javascript' });
+  const swURL = URL.createObjectURL(swBlob);
+  navigator.serviceWorker.register(swURL).catch(() => {});
+}
+</script>
+
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&display=swap');
+
+/* ── Reset & base ─────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:        #0b0c0e;
+  --surface:   #131416;
+  --card:      #1a1b1e;
+  --border:    rgba(255,255,255,0.08);
+  --border-em: rgba(255,255,255,0.14);
+  --ink:       #f0f0ee;
+  --muted:     #888884;
+  --hint:      #4a4a47;
+  --accent:    #378ADD;
+  --accent-bg: rgba(55,138,221,0.12);
+  --accent-dk: #185FA5;
+  --amber:     #EF9F27;
+  --amber-bg:  rgba(239,159,39,0.12);
+  --danger:    #E24B4A;
+  --danger-bg: rgba(226,75,74,0.1);
+  --success:   #5DCAA5;
+  --mono:      'DM Mono', 'Courier New', monospace;
+  --display:   'Syne', system-ui, sans-serif;
+  --r:         14px;
+  --rm:        9px;
+  --rs:        6px;
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+}
+
+html, body {
+  width: 100%; height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--mono);
+  -webkit-tap-highlight-color: transparent;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Install banner ──────────────────────────── */
+.install-banner {
+  display: none;
+  background: var(--accent-bg);
+  border: 0.5px solid rgba(55,138,221,0.35);
+  border-radius: var(--r);
+  padding: 12px 16px;
+  margin: 0 16px 8px;
+  text-align: center;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.install-banner.show { display: block; }
+.install-banner:active { background: rgba(55,138,221,0.22); }
+.install-banner span {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 0.05em;
+}
+
+/* ── Screen shell ─────────────────────────────────── */
+.shell {
+  position: fixed; inset: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.track {
+  display: flex;
+  width: 200%;
+  height: 100%;
+  transition: transform 0.32s cubic-bezier(0.4,0,0.2,1);
+}
+.track.on-saved { transform: translateX(-50%); }
+
+.screen {
+  width: 50%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Topbar ───────────────────────────────────────── */
+.topbar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: calc(var(--sat) + 14px) 18px 12px;
+  border-bottom: 0.5px solid var(--border);
+  background: var(--bg);
+  gap: 10px;
+}
+.topbar-left { min-width: 0; }
+.topbar-eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--hint);
+  margin-bottom: 2px;
+}
+.topbar-title {
+  font-family: var(--display);
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--ink);
+  line-height: 1;
+}
+.chip {
+  flex-shrink: 0;
+  background: var(--accent-bg);
+  border: 0.5px solid rgba(55,138,221,0.35);
+  border-radius: 20px;
+  padding: 6px 12px;
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--accent);
+  cursor: pointer;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+.chip:active { background: rgba(55,138,221,0.25); }
+.chip-back {
+  background: transparent;
+  border: 0.5px solid var(--border-em);
+  color: var(--muted);
+}
+.chip-back:active { background: var(--card); }
+
+/* ── Scrollable body ──────────────────────────────── */
+.body {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  padding: 14px 16px calc(var(--sab) + 16px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ── Field groups ─────────────────────────────────── */
+.field-row { display: flex; gap: 8px; }
+.field { display: flex; flex-direction: column; gap: 4px; flex: 1; }
+.field-label {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding-left: 1px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.field-label svg { flex-shrink: 0; opacity: 0.6; }
+
+input[type=number], input[type=text] {
+  width: 100%;
+  background: var(--card);
+  border: 0.5px solid var(--border-em);
+  border-radius: var(--rm);
+  padding: 11px 12px;
+  font-family: var(--mono);
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--ink);
+  outline: none;
+  -moz-appearance: textfield;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  -webkit-appearance: none;
+}
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; }
+input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(55,138,221,0.2);
+}
+input::placeholder { color: var(--hint); font-weight: 400; }
+
+.tax-hint {
+  font-size: 10px;
+  color: var(--hint);
+  text-align: right;
+  margin-top: -4px;
+  letter-spacing: 0.04em;
+}
+
+/* ── Breakdown card ───────────────────────────────── */
+.breakdown {
+  background: var(--card);
+  border: 0.5px solid var(--border);
+  border-radius: var(--r);
+  overflow: hidden;
+}
+.breakdown-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 9px 14px;
+  border-bottom: 0.5px solid var(--border);
+}
+.section-label {
+  font-size: 10px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--hint);
+}
+.brow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  gap: 10px;
+  border-bottom: 0.5px solid var(--border);
+}
+.brow:last-child { border-bottom: none; }
+.brow-name { font-size: 12px; color: var(--muted); min-width: 64px; }
+.brow-track {
+  flex: 1;
+  height: 3px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.brow-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+  transition: width 0.4s cubic-bezier(0.4,0,0.2,1);
+}
+.brow-fill.tax { background: var(--danger); }
+.brow-val {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+  min-width: 72px;
+  text-align: right;
+}
+.brow-val.tax { color: var(--danger); }
+.divrow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 14px;
+  border-top: 0.5px solid var(--border-em);
+  border-bottom: 0.5px solid var(--border);
+}
+.divrow-label { font-size: 11px; color: var(--muted); letter-spacing: 0.05em; }
+.divrow-val { font-size: 13px; font-weight: 500; color: var(--muted); }
+
+/* ── Total card ───────────────────────────────────── */
+.total-card {
+  background: var(--surface);
+  border: 0.5px solid var(--border-em);
+  border-radius: var(--r);
+  padding: 14px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.total-meta {}
+.total-eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--hint);
+  margin-bottom: 3px;
+}
+.total-client {
+  font-size: 12px;
+  color: var(--muted);
+  max-width: 140px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.total-amount {
+  font-family: var(--display);
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  color: var(--ink);
+  transition: color 0.25s;
+  white-space: nowrap;
+}
+.total-amount.flash { color: var(--accent); }
+
+/* ── Action row ───────────────────────────────────── */
+.action-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.action-row input[type=text] { flex: 1; font-size: 15px; }
+.btn {
+  flex-shrink: 0;
+  background: var(--card);
+  border: 0.5px solid var(--border-em);
+  border-radius: var(--rm);
+  padding: 11px 14px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink);
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.btn:active { transform: scale(0.96); background: var(--border); }
+.btn-save {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.btn-save:active { background: var(--accent-dk); }
+.btn-update {
+  background: var(--amber-bg);
+  border-color: rgba(239,159,39,0.4);
+  color: var(--amber);
+}
+.btn-reset {
+  padding: 11px 12px;
+}
+
+.feedback {
+  font-size: 11px;
+  min-height: 16px;
+  color: var(--success);
+  text-align: center;
+  letter-spacing: 0.06em;
+}
+
+/* ── Saved screen ─────────────────────────────────── */
+.saved-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2px;
+}
+.saved-items { display: flex; flex-direction: column; gap: 6px; }
+.saved-item {
+  background: var(--card);
+  border: 0.5px solid var(--border);
+  border-radius: var(--rm);
+  padding: 11px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.saved-item:active, .saved-item:hover { border-color: var(--border-em); background: var(--surface); }
+.saved-item.editing {
+  border-color: rgba(239,159,39,0.5);
+  background: rgba(239,159,39,0.06);
+}
+.si-info { flex: 1; min-width: 0; }
+.si-name {
+  font-family: var(--display);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.si-date { font-size: 10px; color: var(--hint); margin-top: 2px; }
+.si-total {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--accent);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.si-del {
+  background: none;
+  border: none;
+  color: var(--hint);
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+  font-size: 18px;
+  line-height: 1;
+  flex-shrink: 0;
+  transition: color 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.si-del:active { color: var(--danger); }
+
+.empty {
+  font-size: 12px;
+  color: var(--hint);
+  text-align: center;
+  padding: 28px 16px;
+  border: 0.5px dashed var(--border);
+  border-radius: var(--rm);
+}
+
+.btn-clear {
+  background: transparent;
+  border: 0.5px solid rgba(226,75,74,0.4);
+  border-radius: var(--rs);
+  padding: 5px 10px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--danger);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.btn-clear:active { background: var(--danger-bg); }
+
+/* ── SVG icons inline ─────────────────────────────── */
+.icon { display:inline-block; vertical-align:-3px; }
+
+/* ── Landscape compact mode ───────────────────────── */
+@media (max-height: 480px) {
+  .topbar { padding-top: calc(var(--sat) + 8px); padding-bottom: 8px; }
+  .topbar-title { font-size: 18px; }
+  .body { gap: 7px; padding-top: 10px; }
+  .total-amount { font-size: 26px; }
+  .brow { padding: 6px 14px; }
+}
+
+/* ── Standalone mode (PWA installed) ──────────── */
+@media (display-mode: standalone) {
+  .install-banner { display: none !important; }
+}
+</style>
+</head>
+<body>
+
+<div class="shell">
+  <!-- Install banner (hidden when installed) -->
+  <div class="install-banner" id="installBanner" onclick="this.style.display='none'">
+    <span>📲 Tap to install — works offline!</span>
+  </div>
+
+  <div class="track" id="track">
+
+    <!-- ══════════════════════════════════════════
+         SCREEN 1 — CALCULATOR
+    ══════════════════════════════════════════ -->
+    <div class="screen" id="calcScreen">
+
+      <div class="topbar">
+        <div class="topbar-left">
+          <div class="topbar-eyebrow">Cost Estimator</div>
+          <div class="topbar-title">Quote Builder</div>
+        </div>
+        <div class="chip" id="goSavedBtn">
+          <svg class="icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          Saved (<span id="savedCount">0</span>)
+        </div>
+      </div>
+
+      <div class="body" id="calcBody">
+
+        <div class="field-row">
+          <div class="field">
+            <div class="field-label">
+              <svg class="icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              Hours
+            </div>
+            <input type="number" id="hours" value="36" min="0" step="0.5" inputmode="decimal" placeholder="0">
+          </div>
+          <div class="field">
+            <div class="field-label">
+              <svg class="icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+              Rate / hr
+            </div>
+            <input type="number" id="rate" value="50" min="0" step="1" inputmode="decimal" placeholder="0">
+          </div>
+        </div>
+
+        <div class="field-row">
+          <div class="field">
+            <div class="field-label">
+              <svg class="icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+              Materials ($)
+            </div>
+            <input type="number" id="materials" value="576" min="0" step="0.01" inputmode="decimal" placeholder="0">
+          </div>
+          <div class="field">
+            <div class="field-label">
+              <svg class="icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+              Travel ($)
+            </div>
+            <input type="number" id="travel" value="310" min="0" step="0.01" inputmode="decimal" placeholder="0">
+          </div>
+        </div>
+
+        <div class="field">
+          <div class="field-label">
+            <svg class="icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+            Tax %
+          </div>
+          <input type="number" id="tax" value="7" min="0" max="100" step="0.1" inputmode="decimal" placeholder="0">
+          <div class="tax-hint" id="taxHint">7.00% applied to subtotal</div>
+        </div>
+
+        <div class="breakdown">
+          <div class="breakdown-head">
+            <span class="section-label">Line items</span>
+            <span class="section-label" id="activeCount">— active</span>
+          </div>
+          <div class="brow">
+            <span class="brow-name">Labor</span>
+            <div class="brow-track"><div class="brow-fill" id="laborBar" style="width:0%"></div></div>
+            <span class="brow-val" id="laborVal">$0.00</span>
+          </div>
+          <div class="brow">
+            <span class="brow-name">Materials</span>
+            <div class="brow-track"><div class="brow-fill" id="materialsBar" style="width:0%"></div></div>
+            <span class="brow-val" id="materialsVal">$0.00</span>
+          </div>
+          <div class="brow">
+            <span class="brow-name">Travel</span>
+            <div class="brow-track"><div class="brow-fill" id="travelBar" style="width:0%"></div></div>
+            <span class="brow-val" id="travelVal">$0.00</span>
+          </div>
+          <div class="divrow">
+            <span class="divrow-label">Subtotal</span>
+            <span class="divrow-val" id="subtotalVal">$0.00</span>
+          </div>
+          <div class="brow" style="border-bottom:none;">
+            <span class="brow-name">Tax</span>
+            <div class="brow-track"><div class="brow-fill tax" id="taxBar" style="width:0%"></div></div>
+            <span class="brow-val tax" id="taxVal">$0.00</span>
+          </div>
+        </div>
+
+        <div class="total-card">
+          <div class="total-meta">
+            <div class="total-eyebrow">Total Due</div>
+            <div class="total-client" id="totalClient">—</div>
+          </div>
+          <div class="total-amount" id="totalAmount">$0.00</div>
+        </div>
+
+        <div class="action-row">
+          <input type="text" id="clientName" placeholder="Client name…" autocomplete="off" autocorrect="off" spellcheck="false">
+          <button class="btn btn-save" id="saveBtn">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+            Save
+          </button>
+          <button class="btn btn-reset" id="resetBtn" aria-label="Reset fields">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.1"/></svg>
+          </button>
+        </div>
+        <div class="feedback" id="feedback"></div>
+
+      </div><!-- /body -->
+    </div><!-- /screen 1 -->
+
+    <!-- ══════════════════════════════════════════
+         SCREEN 2 — SAVED ESTIMATES
+    ══════════════════════════════════════════ -->
+    <div class="screen" id="savedScreen">
+
+      <div class="topbar">
+        <div class="topbar-left">
+          <div class="topbar-eyebrow">Archive</div>
+          <div class="topbar-title">Saved</div>
+        </div>
+        <div class="chip chip-back" id="backBtn">← Back</div>
+      </div>
+
+      <div class="body">
+
+        <div class="saved-header-row">
+          <span class="section-label">All estimates (<span id="savedTotal">0</span>)</span>
+          <button class="btn-clear" id="clearBtn">
+            <svg class="icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+            Clear all
+          </button>
+        </div>
+
+        <div class="saved-items" id="savedItems">
+          <div class="empty">No estimates saved yet.</div>
+        </div>
+
+      </div>
+    </div><!-- /screen 2 -->
+
+  </div><!-- /track -->
+</div><!-- /shell -->
+
+<script>
+(function() {
+  'use strict';
+
+  /* ── DOM refs ───────────────────────────────── */
+  const track       = document.getElementById('track');
+  const hoursEl     = document.getElementById('hours');
+  const rateEl      = document.getElementById('rate');
+  const matsEl      = document.getElementById('materials');
+  const travelEl    = document.getElementById('travel');
+  const taxEl       = document.getElementById('tax');
+  const clientEl    = document.getElementById('clientName');
+  const laborBarEl  = document.getElementById('laborBar');
+  const matsBarEl   = document.getElementById('materialsBar');
+  const travelBarEl = document.getElementById('travelBar');
+  const taxBarEl    = document.getElementById('taxBar');
+  const laborValEl  = document.getElementById('laborVal');
+  const matsValEl   = document.getElementById('materialsVal');
+  const travelValEl = document.getElementById('travelVal');
+  const subtotalEl  = document.getElementById('subtotalVal');
+  const taxValEl    = document.getElementById('taxVal');
+  const totalAmtEl  = document.getElementById('totalAmount');
+  const totalClEl   = document.getElementById('totalClient');
+  const taxHintEl   = document.getElementById('taxHint');
+  const activeCtEl  = document.getElementById('activeCount');
+  const savedCntEl  = document.getElementById('savedCount');
+  const savedTotEl  = document.getElementById('savedTotal');
+  const savedItems  = document.getElementById('savedItems');
+  const saveBtnEl   = document.getElementById('saveBtn');
+  const feedbackEl  = document.getElementById('feedback');
+  const installBnr  = document.getElementById('installBanner');
+
+  /* ── State ──────────────────────────────────── */
+  let editId = null;
+  let flashTimer = null;
+
+  /* ── Utilities ──────────────────────────────── */
+  function fmt(n) {
+    return '$' + n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  }
+  function pct(w) { return Math.round(Math.min(Math.max(w * 100, 0), 100)) + '%'; }
+
+  /* ── Storage ────────────────────────────────── */
+  function load() {
+    try { return JSON.parse(localStorage.getItem('qb_v1') || '[]'); }
+    catch(e) { return []; }
+  }
+  function save(arr) { localStorage.setItem('qb_v1', JSON.stringify(arr)); }
+
+  /* ── Calculate & render ─────────────────────── */
+  function calc() {
+    const h  = parseFloat(hoursEl.value)  || 0;
+    const r  = parseFloat(rateEl.value)   || 0;
+    const m  = parseFloat(matsEl.value)   || 0;
+    const tr = parseFloat(travelEl.value) || 0;
+    const tp = parseFloat(taxEl.value)    || 0;
+
+    const labor   = h * r;
+    const sub     = labor + m + tr;
+    const taxAmt  = sub * (tp / 100);
+    const total   = sub + taxAmt;
+
+    const maxItem = Math.max(labor, m, tr, 0.01);
+    laborBarEl.style.width  = pct(labor / maxItem);
+    matsBarEl.style.width   = pct(m     / maxItem);
+    travelBarEl.style.width = pct(tr    / maxItem);
+    taxBarEl.style.width = sub > 0 ? pct((taxAmt / sub) * (100 / 100)) : '0%';
+
+    laborValEl.textContent  = fmt(labor);
+    matsValEl.textContent   = fmt(m);
+    travelValEl.textContent = fmt(tr);
+    subtotalEl.textContent  = fmt(sub);
+    taxValEl.textContent    = fmt(taxAmt);
+    totalAmtEl.textContent  = fmt(total);
+
+    taxHintEl.textContent = tp.toFixed(2) + '% applied to subtotal';
+    const active = [labor>0, m>0, tr>0, taxAmt>0].filter(Boolean).length;
+    activeCtEl.textContent = active + ' active';
+
+    const cn = clientEl.value.trim();
+    totalClEl.textContent = cn || '—';
+
+    totalAmtEl.classList.add('flash');
+    clearTimeout(window._flashT);
+    window._flashT = setTimeout(() => totalAmtEl.classList.remove('flash'), 280);
+
+    return { h, r, m, tr, labor, sub, taxPct: tp, taxAmt, total };
+  }
+
+  /* ── Render saved list ──────────────────────── */
+  function renderSaved() {
+    const all = load();
+    savedCntEl.textContent = all.length;
+    savedTotEl.textContent = all.length;
+
+    if (!all.length) {
+      savedItems.innerHTML = '<div class="empty">No estimates saved yet.</div>';
+      return;
+    }
+
+    savedItems.innerHTML = all.map(e => `
+      <div class="saved-item${editId === e.id ? ' editing' : ''}" data-id="${e.id}">
+        <div class="si-info">
+          <div class="si-name">${escHtml(e.name)}</div>
+          <div class="si-date">${e.date}</div>
+        </div>
+        <div class="si-total">${fmt(e.total)}</div>
+        <button class="si-del" data-del="${e.id}" aria-label="Delete">&#x2715;</button>
+      </div>
+    `).join('');
+
+    savedItems.querySelectorAll('.saved-item').forEach(el => {
+      el.addEventListener('click', function(ev) {
+        if (ev.target.closest('.si-del')) return;
+        loadEstimate(parseInt(this.dataset.id, 10));
+      });
+    });
+    savedItems.querySelectorAll('.si-del').forEach(btn => {
+      btn.addEventListener('click', function(ev) {
+        ev.stopPropagation();
+        deleteEstimate(parseInt(this.dataset.del, 10));
+      });
+    });
+  }
+
+  function escHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  /* ── Save / update ──────────────────────────── */
+  function saveEstimate() {
+    const name = clientEl.value.trim();
+    if (!name) { flash('Enter a client name first.', 'var(--danger)'); return; }
+    const d    = calc();
+    const all  = load();
+    const date = new Date().toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+
+    if (editId !== null) {
+      const idx = all.findIndex(e => e.id === editId);
+      if (idx > -1) { all[idx] = { id: editId, name, date, total: d.total, data: d }; }
+      flash('Updated — ' + name, 'var(--accent)');
+    } else {
+      all.unshift({ id: Date.now(), name, date, total: d.total, data: d });
+      if (all.length > 60) all.pop();
+      flash('Saved — ' + name, 'var(--success)');
+    }
+
+    save(all);
+    resetEdit();
+    renderSaved();
+  }
+
+  /* ── Load estimate into form ────────────────── */
+  function loadEstimate(id) {
+    const all = load();
+    const e   = all.find(x => x.id === id);
+    if (!e) return;
+    const d = e.data;
+    editId             = id;
+    hoursEl.value      = d.h;
+    rateEl.value       = d.r;
+    matsEl.value       = d.m;
+    travelEl.value     = d.tr;
+    taxEl.value        = d.taxPct;
+    clientEl.value     = e.name;
+    saveBtnEl.innerHTML = '&#x270F; Update';
+    saveBtnEl.className = 'btn btn-update';
+    calc();
+    goCalc();
+    renderSaved();
+    flash('Editing — ' + e.name, 'var(--amber)');
+  }
+
+  /* ── Delete ─────────────────────────────────── */
+  function deleteEstimate(id) {
+    const filtered = load().filter(e => e.id !== id);
+    save(filtered);
+    if (editId === id) resetEdit();
+    renderSaved();
+  }
+
+  /* ── Reset edit state ───────────────────────── */
+  function resetEdit() {
+    editId = null;
+    clientEl.value = '';
+    saveBtnEl.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> Save';
+    saveBtnEl.className = 'btn btn-save';
+  }
+
+  /* ── Flash message ──────────────────────────── */
+  function flash(msg, color) {
+    feedbackEl.textContent = msg;
+    feedbackEl.style.color = color || 'var(--success)';
+    clearTimeout(flashTimer);
+    flashTimer = setTimeout(() => { feedbackEl.textContent = ''; }, 2600);
+  }
+
+  /* ── Navigation ─────────────────────────────── */
+  function goSaved() { renderSaved(); track.classList.add('on-saved'); }
+  function goCalc()  { track.classList.remove('on-saved'); }
+
+  /* ── PWA install prompt ─────────────────────── */
+  let deferredPrompt = null;
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredPrompt = e;
+    // Only show banner if not already installed
+    if (!window.matchMedia('(display-mode: standalone)').matches) {
+      installBnr.classList.add('show');
+    }
+  });
+
+  installBnr.addEventListener('click', async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const result = await deferredPrompt.userChoice;
+      if (result.outcome === 'accepted') {
+        installBnr.classList.remove('show');
+      }
+      deferredPrompt = null;
+    }
+  });
+
+  // Hide banner if already installed
+  if (window.matchMedia('(display-mode: standalone)').matches) {
+    installBnr.classList.remove('show');
+  }
+
+  /* ── Event listeners ────────────────────────── */
+  [hoursEl, rateEl, matsEl, travelEl, taxEl].forEach(el => el.addEventListener('input', calc));
+  clientEl.addEventListener('input', () => { totalClEl.textContent = clientEl.value.trim() || '—'; });
+
+  saveBtnEl.addEventListener('click', saveEstimate);
+
+  document.getElementById('resetBtn').addEventListener('click', () => {
+    hoursEl.value = rateEl.value = matsEl.value = travelEl.value = taxEl.value = '0';
+    resetEdit();
+    calc();
+    flash('Fields cleared.', 'var(--muted)');
+  });
+
+  document.getElementById('goSavedBtn').addEventListener('click', goSaved);
+  document.getElementById('backBtn').addEventListener('click', goCalc);
+
+  document.getElementById('clearBtn').addEventListener('click', () => {
+    if (confirm('Delete all saved estimates? This cannot be undone.')) {
+      localStorage.removeItem('qb_v1');
+      resetEdit();
+      renderSaved();
+    }
+  });
+
+  /* ── Swipe gesture ──────────────────────────── */
+  let tsX = null, tsY = null;
+  document.addEventListener('touchstart', e => {
+    tsX = e.touches[0].clientX;
+    tsY = e.touches[0].clientY;
+  }, { passive: true });
+  document.addEventListener('touchend', e => {
+    if (tsX === null) return;
+    const dx = e.changedTouches[0].clientX - tsX;
+    const dy = Math.abs(e.changedTouches[0].clientY - tsY);
+    if (Math.abs(dx) > 60 && dy < 50) {
+      if (dx < 0 && !track.classList.contains('on-saved')) goSaved();
+      if (dx > 0 &&  track.classList.contains('on-saved')) goCalc();
+    }
+    tsX = tsY = null;
+  }, { passive: true });
+
+  /* ── Init ───────────────────────────────────── */
+  calc();
+  renderSaved();
+})();
+</script>
+</body>
+</html>
